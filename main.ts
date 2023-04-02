@@ -1,137 +1,119 @@
-import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting } from 'obsidian';
-
-// Remember to rename these classes and interfaces!
+import { Plugin, MarkdownView } from "obsidian";
+import { google } from "googleapis";
 
 interface MyPluginSettings {
-	mySetting: string;
+  hotkey: string;
 }
 
 const DEFAULT_SETTINGS: MyPluginSettings = {
-	mySetting: 'default'
-}
+  hotkey: "Mod-k",
+};
 
 export default class MyPlugin extends Plugin {
-	settings: MyPluginSettings;
+  private searchEngineId = "YOUR_CX_HERE";
+  private apiKey = "YOUR_API_KEY_HERE";
+  private settings: MyPluginSettings;
 
-	async onload() {
-		await this.loadSettings();
+  async onload() {
+    console.log("loading plugin");
 
-		// This creates an icon in the left ribbon.
-		const ribbonIconEl = this.addRibbonIcon('dice', 'Sample Plugin', (evt: MouseEvent) => {
-			// Called when the user clicks the icon.
-			new Notice('This is a notice!');
-		});
-		// Perform additional things with the ribbon
-		ribbonIconEl.addClass('my-plugin-ribbon-class');
+    await this.loadSettings();
 
-		// This adds a status bar item to the bottom of the app. Does not work on mobile apps.
-		const statusBarItemEl = this.addStatusBarItem();
-		statusBarItemEl.setText('Status Bar Text');
+    this.addCommand({
+      id: "search-google",
+      name: "Search Google",
+      callback: () => {
+        const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+        if (view) {
+          const text = view.editor.getSelection();
+          if (text) {
+            this.searchAndShowMenu(text);
+          }
+        }
+      },
+      hotkeys: [
+        {
+          modifiers: this.settings.hotkey.split("-"),
+          key: this.settings.hotkey.split("-").pop(),
+        },
+      ],
+    });
 
-		// This adds a simple command that can be triggered anywhere
-		this.addCommand({
-			id: 'open-sample-modal-simple',
-			name: 'Open sample modal (simple)',
-			callback: () => {
-				new SampleModal(this.app).open();
-			}
-		});
-		// This adds an editor command that can perform some operation on the current editor instance
-		this.addCommand({
-			id: 'sample-editor-command',
-			name: 'Sample editor command',
-			editorCallback: (editor: Editor, view: MarkdownView) => {
-				console.log(editor.getSelection());
-				editor.replaceSelection('Sample Editor Command');
-			}
-		});
-		// This adds a complex command that can check whether the current state of the app allows execution of the command
-		this.addCommand({
-			id: 'open-sample-modal-complex',
-			name: 'Open sample modal (complex)',
-			checkCallback: (checking: boolean) => {
-				// Conditions to check
-				const markdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
-				if (markdownView) {
-					// If checking is true, we're simply "checking" if the command can be run.
-					// If checking is false, then we want to actually perform the operation.
-					if (!checking) {
-						new SampleModal(this.app).open();
-					}
+    this.addSettingTab(new MyPluginSettingsTab(this.app, this));
+  }
 
-					// This command will only show up in Command Palette when the check function returns true
-					return true;
-				}
-			}
-		});
+  async searchAndShowMenu(text: string) {
+    const results = await this.search(text);
+    const menu = this.createMenu(results, text);
+    this.app.workspace.showMenu(menu);
+  }
 
-		// This adds a settings tab so the user can configure various aspects of the plugin
-		this.addSettingTab(new SampleSettingTab(this.app, this));
+  async search(text: string) {
+    const customsearch = google.customsearch("v1");
+    const res = await customsearch.cse.list({
+      cx: this.searchEngineId,
+      q: text,
+      auth: this.apiKey,
+    });
+    return res.data.items;
+  }
 
-		// If the plugin hooks up any global DOM events (on parts of the app that doesn't belong to this plugin)
-		// Using this function will automatically remove the event listener when this plugin is disabled.
-		this.registerDomEvent(document, 'click', (evt: MouseEvent) => {
-			console.log('click', evt);
-		});
+  createMenu(results: any[], text: string) {
+    const menu = new Menu();
+    for (const result of results) {
+      menu.addItem(result.title, () => {
+        const url = result.link;
+        const link = `[${text}](${url})`;
+        const editor = this.app.workspace.getActiveViewOfType(MarkdownView)
+          ?.editor;
+        if (editor) {
+          editor.replaceSelection(link);
+        }
+      });
+    }
+    return menu;
+  }
 
-		// When registering intervals, this function will automatically clear the interval when the plugin is disabled.
-		this.registerInterval(window.setInterval(() => console.log('setInterval'), 5 * 60 * 1000));
-	}
+  async loadSettings() {
+    this.settings = Object.assign(
+      {},
+      DEFAULT_SETTINGS,
+      await this.loadData()
+    );
+  }
 
-	onunload() {
-
-	}
-
-	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
-	}
-
-	async saveSettings() {
-		await this.saveData(this.settings);
-	}
+  async saveSettings() {
+    await this.saveData(this.settings);
+  }
 }
 
-class SampleModal extends Modal {
-	constructor(app: App) {
-		super(app);
-	}
+class MyPluginSettingsTab extends PluginSettingTab {
+  plugin: MyPlugin;
 
-	onOpen() {
-		const {contentEl} = this;
-		contentEl.setText('Woah!');
-	}
+  constructor(app: App, plugin: MyPlugin) {
+    super(app, plugin);
+    this.plugin = plugin;
+  }
 
-	onClose() {
-		const {contentEl} = this;
-		contentEl.empty();
-	}
-}
+  display(): void {
+    let { containerEl } = this;
 
-class SampleSettingTab extends PluginSettingTab {
-	plugin: MyPlugin;
+    containerEl.empty();
 
-	constructor(app: App, plugin: MyPlugin) {
-		super(app, plugin);
-		this.plugin = plugin;
-	}
+	containerEl.createEl('h2', { text: 'Settings for my awesome plugin.' });
 
-	display(): void {
-		const {containerEl} = this;
-
-		containerEl.empty();
-
-		containerEl.createEl('h2', {text: 'Settings for my awesome plugin.'});
-
-		new Setting(containerEl)
-			.setName('Setting #1')
-			.setDesc('It\'s a secret')
-			.addText(text => text
-				.setPlaceholder('Enter your secret')
-				.setValue(this.plugin.settings.mySetting)
-				.onChange(async (value) => {
-					console.log('Secret: ' + value);
-					this.plugin.settings.mySetting = value;
-					await this.plugin.saveSettings();
-				}));
-	}
+    new Setting(containerEl)
+      .setName("Hotkey")
+      .setDesc("The hotkey to trigger the search menu")
+      .addText((text) =>
+        text
+          .setPlaceholder(DEFAULT_SETTINGS.hotkey)
+          .setValue(this.plugin.settings.hotkey)
+          .onChange(async (value) => {
+            this.plugin.settings.hotkey = value;
+            await this.plugin.saveSettings();
+            this.plugin.registerHotkeys();
+          })
+      );
+  }
 }
